@@ -193,7 +193,6 @@ class TransformerFusion(nn.Module):
             # (N,N,4,4)
             # t_matrix[i, j]-> from i to j
             neighbor_feature = batch_neighbor_feature[b]
-            intention_query = neighbor_feature.permute()
             _, C, H, W = neighbor_feature.shape
             neighbor_feature_flat = neighbor_feature.view(N,C,H*W)  # (N, C, H*W)
 
@@ -205,6 +204,9 @@ class TransformerFusion(nn.Module):
             else:
                 query = neighbor_feature_flat[0:1,...].permute(0,2,1)  # (1, H*W, C)
                 key = neighbor_feature_flat.permute(0,2,1)  # (N, H*W, C)
+
+            intention_features = self.intention_encoder(query)
+
             
             value = neighbor_feature_flat.permute(0,2,1)
 
