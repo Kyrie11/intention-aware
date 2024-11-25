@@ -126,14 +126,14 @@ class PointPillarWhere2comm(nn.Module):
         # spatial_features_2d is [sum(cav_num), 256, 50, 176]
         # output only contains ego
         # [B, 256, 50, 176]
-        psm_single = self.cls_head(spatial_features_2d)
-        rm_single = self.reg_head(spatial_features_2d)
-        ism_single = self.int_head(spatial_features_2d)
+        psm_single = self.cls_head(spatial_features_2d)#class feature
+        rm_single = self.reg_head(spatial_features_2d) #location feature
+        im_single = self.int_head(spatial_features_2d) #intention feature
 
         # print('spatial_features_2d: ', spatial_features_2d.shape)
         if self.multi_scale:
             fused_feature, communication_rates, result_dict = self.fusion_net(batch_dict['spatial_features'],
-                                            ism_single,
+                                            im_single,
                                             record_len,
                                             pairwise_t_matrix, 
                                             self.backbone,
@@ -143,7 +143,7 @@ class PointPillarWhere2comm(nn.Module):
                 fused_feature = self.shrink_conv(fused_feature)
         else:
             fused_feature, communication_rates, result_dict = self.fusion_net(spatial_features_2d,
-                                            ism_single,
+                                            im_single,
                                             record_len,
                                             pairwise_t_matrix)
             
@@ -151,7 +151,7 @@ class PointPillarWhere2comm(nn.Module):
         # print('fused_feature: ', fused_feature.shape)
         psm = self.cls_head(fused_feature)
         rm = self.reg_head(fused_feature)
-
+        im = self.int_head(fused_feature)
         output_dict = {'psm': psm,
                        'rm': rm
                        }
@@ -159,19 +159,26 @@ class PointPillarWhere2comm(nn.Module):
         
         split_psm_single = self.regroup(psm_single, record_len)
         split_rm_single = self.regroup(rm_single, record_len)
+        split_im_single = self.regroup(im_single, record_len)
         psm_single_v = []
         psm_single_i = []
         rm_single_v = []
         rm_single_i = []
+        im_single_v = []
+        im_single_i = []
         for b in range(len(split_psm_single)):
             psm_single_v.append(split_psm_single[b][0:1])
             psm_single_i.append(split_psm_single[b][1:2])
             rm_single_v.append(split_rm_single[b][0:1])
             rm_single_i.append(split_rm_single[b][1:2])
+            im_single_v.append(split_im_single[b][0:1])
+            im_single_i.append(split_im_single[b][1:2])
         psm_single_v = torch.cat(psm_single_v, dim=0)
         psm_single_i = torch.cat(psm_single_i, dim=0)
         rm_single_v = torch.cat(rm_single_v, dim=0)
         rm_single_i = torch.cat(rm_single_i, dim=0)
+        im_single_v = torch.cat(im_single_v, dim=0)
+        im_single_u = torch.cat(im_single_i, dim=0)
         output_dict.update({'psm_single_v': psm_single_v,
                        'psm_single_i': psm_single_i,
                        'rm_single_v': rm_single_v,

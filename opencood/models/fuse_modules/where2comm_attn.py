@@ -121,30 +121,6 @@ class SpatialCollisionPredictor(nn.Module):
         return collision_map
 
 
-class CrossAgentAttention(nn.Module):
-    def __init__(self, feat_dim, hidden_dim):
-        super().__init__()
-        self.query_proj = nn.Linear(hidden_dim, feat_dim)
-        self.key_proj = nn.Linear(feat_dim, feat_dim)
-        self.value_proj = nn.Linear(feat_dim, feat_dim)
-
-        self.collision_predictor = nn.Sequential(
-            nn.Linear(feat_dim*2, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, intention_features, visual_features):
-        queries = self.query_proj(intention_features).unsqueeze(1)
-        keys = self.key_proj(visual_features)
-        values = self.value_proj(visual_features)
-
-        attention_scores = torch.matmul(queries, keys.transpose(-2,-1))
-        attention_scores = attention_scores / torch.sqrt(torch.tensor(keys.size(-1)))
-        attention_weights =
 
 class IntentionPredictor(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
