@@ -77,29 +77,85 @@ intention的query和other feature计算一个intention map
 class IntentionEncoder(nn.Module):
     def __init__(self, channels, n_head=8, dropout=0):
         super(IntentionEncoder, self).__init__()
-        self.attn = nn.MultiheadAttention(channels, n_head, dropout)
-        self.linear1 = nn.Linear(channels, channels)
-        self.linear2 = nn.Linear(channels, channels)
+        self.encoder = nn.Sequential(
+            nn.Linear(channels, channels),
+            nn.ReLU(),
+            nn.Linear(channels, channels)
+        )
 
-        self.norm1 = nn.LayerNorm(channels)
-        self.norm2 = nn.LayerNorm(channels)
+    def forward(self, intention_query):
+        return self.encoder(intention_query)
 
-        self.fc = nn.Linear(128, 4)
+class SpatialCollisionPredictor(nn.Module):
+    def __init__(self, feat_dim, hidden_dim, map_size):
+        super().__init__()
+        self.map_size = map_size
 
-    def forward(self, x):
-        x = self.conv(x)
-        x = x.flatten(2).permute(0,2,1)
-        attn_output, _ = self.attn(x, x, x)
-        pooled_output = torch.mean(attn_output, dim=1)
-        intention_query = self.fc(pooled_output)
-        return intention_query
+        self.spatial_attention = nn.Sequential(
+            nn.Conv2d(feat_dim + hidden_dim, 256, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 128, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 1, 1),
+            nn.Sigmoid()
+        )
 
-class IntentionFuseEncoder(nn.Module):
-    def __init__(self, channels, n_head=8, dropout=0):
-        super(IntentionFuseEncoder, self).__init__()
-        self.attn = nn.MultiheadAttention(channels, n_head, dropout)
-        self.linear1 = nn.Linear(channels, channels)
+    def forward(self, intention_features, visual_features):
+        batch_size = visual_features.size(0)
 
+        intention_spatial = intention_features.view(batch_size, -1, 1, 1)
+        intention_spatial = intention_spatial.expand(-1, -1,
+                                                     visual_features.size(2),
+                                                     visual_features.size(3))
+
+        combined_features = torch.cat([visual_features, intention_spatial], dim=1)
+
+        collision_map = self.spatial_attention(combined_features)
+
+        collision_map = F.interpolate(collision_map,
+                                      size=self.map_size,
+                                      mode="bilinear",
+                                      align_corners=False)
+        return collision_map
+
+
+class CrossAgentAttention(nn.Module):
+    def __init__(self, feat_dim, hidden_dim):
+        super().__init__()
+        self.query_proj = nn.Linear(hidden_dim, feat_dim)
+        self.key_proj = nn.Linear(feat_dim, feat_dim)
+        self.value_proj = nn.Linear(feat_dim, feat_dim)
+
+        self.collision_predictor = nn.Sequential(
+            nn.Linear(feat_dim*2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim // 2, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, intention_features, visual_features):
+        queries = self.query_proj(intention_features).unsqueeze(1)
+        keys = self.key_proj(visual_features)
+        values = self.value_proj(visual_features)
+
+        attention_scores = torch.matmul(queries, keys.transpose(-2,-1))
+        attention_scores = attention_scores / torch.sqrt(torch.tensor(keys.size(-1)))
+        attention_weights =
+
+class IntentionPredictor(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(IntentionPredictor, self).__init__()
+        self.rnn = nn.LSTM(input_dim, hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+
+
+    def forward(self, features):
+        out, _ = self.rnn(features)
+        return self.fc(out[:, -1, :])
 
 class EncodeLayer(nn.Module):
     def __init__(self, channels, n_head=8, dropout=0):
@@ -157,9 +213,11 @@ class TransformerFusion(nn.Module):
         for b in range(B):
             # number of valid agent
             N = record_len[b]
+
             # (N,N,4,4)
             # t_matrix[i, j]-> from i to j
             neighbor_feature = batch_neighbor_feature[b]
+            intention_query = neighbor_feature.permute()
             _, C, H, W = neighbor_feature.shape
             neighbor_feature_flat = neighbor_feature.view(N,C,H*W)  # (N, C, H*W)
 
@@ -184,6 +242,7 @@ class TransformerFusion(nn.Module):
 
             x_fuse.append(fused_feature)
         x_fuse = torch.concat(x_fuse, dim=0)
+
         return x_fuse
 
 def add_pe_map(x):
@@ -306,7 +365,8 @@ class Where2comm(nn.Module):
                 if i==0:
                     if self.communication:
                         batch_confidence_maps = self.regroup(rm, record_len)
-                        _, communication_masks, communication_rates = self.naive_communication(batch_confidence_maps, record_len, pairwise_t_matrix)
+                        batch_intention_maps = self.regroup(rm, record_len)
+                        _, communication_masks, communication_rates = self.naive_communication(batch_intention_maps, record_len, pairwise_t_matrix)
                         x = x * communication_masks
                     else:
                         communication_rates = torch.tensor(0).to(x.device)

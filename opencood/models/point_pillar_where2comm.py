@@ -53,10 +53,13 @@ class PointPillarWhere2comm(nn.Module):
         self.fusion_net = Where2comm(args['fusion_args'])
         self.multi_scale = args['fusion_args']['multi_scale']
 
+
         self.cls_head = nn.Conv2d(128 * 2, args['anchor_number'],
-                                  kernel_size=1)
+                                  kernel_size=1) #目标分类检测头
         self.reg_head = nn.Conv2d(128 * 2, 7 * args['anchor_number'],
-                                  kernel_size=1)
+                                  kernel_size=1) #目标位置检测头
+        self.int_head = nn.Conv2d(128 * 2, 4,
+                                  kernel_size=1) #预测intention头
 
         if args['backbone_fix']:
             self.backbone_fix()
@@ -125,11 +128,12 @@ class PointPillarWhere2comm(nn.Module):
         # [B, 256, 50, 176]
         psm_single = self.cls_head(spatial_features_2d)
         rm_single = self.reg_head(spatial_features_2d)
+        ism_single = self.int_head(spatial_features_2d)
 
         # print('spatial_features_2d: ', spatial_features_2d.shape)
         if self.multi_scale:
             fused_feature, communication_rates, result_dict = self.fusion_net(batch_dict['spatial_features'],
-                                            psm_single,
+                                            ism_single,
                                             record_len,
                                             pairwise_t_matrix, 
                                             self.backbone,
@@ -139,7 +143,7 @@ class PointPillarWhere2comm(nn.Module):
                 fused_feature = self.shrink_conv(fused_feature)
         else:
             fused_feature, communication_rates, result_dict = self.fusion_net(spatial_features_2d,
-                                            psm_single,
+                                            ism_single,
                                             record_len,
                                             pairwise_t_matrix)
             
