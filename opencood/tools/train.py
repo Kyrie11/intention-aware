@@ -109,6 +109,7 @@ def main():
             # as well
             batch_data['ego']['epoch'] = epoch
             output_dict = model(batch_data['ego'])
+            #output改成运动估计
             # first argument is always your output dictionary,
             # second argument is always your label dictionary.
             final_loss = criterion(output_dict, batch_data['ego']['label_dict'])
